@@ -1,0 +1,68 @@
+--- a/hand/perception/vision_ocr.py
++++ b/hand/perception/vision_ocr.py
+@@ -12,6 +12,7 @@
+ """
+ 
+ import subprocess
++import sys
+ import json
+ import os
+ import time
+@@ -24,9 +25,36 @@
+ 
+ 
+ def _capture_screenshot(path: Optional[str] = None) -> str:
+-    """Take a screenshot, return path."""
++    """Take a screenshot of the whole screen, return the PNG path.
++
++    Cross-platform (Judy, 2026-10-28): hand_see_vlm returns the frame itself,
++    so capture is not a rare fallback any more -- it is how a being looks.
++    A macOS-only backend made that explode on Windows with [WinError 2],
++    which reads like a bug in the caller instead of an absent platform hook.
++    """
+     if path is None:
+         path = os.path.join(tempfile.gettempdir(), "hand_screenshot.png")
++
++    if sys.platform.startswith("win"):
++        ps = (
++            "Add-Type -AssemblyName System.Windows.Forms,System.Drawing;"
++            "$b=[System.Windows.Forms.SystemInformation]::VirtualScreen;"
++            "$bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height;"
++            "$g=[System.Drawing.Graphics]::FromImage($bmp);"
++            "$g.CopyFromScreen($b.Left,$b.Top,0,0,$bmp.Size);"
++            "$bmp.Save('" + path.replace("'", "''") + "',"
++            "[System.Drawing.Imaging.ImageFormat]::Png);"
++            "$g.Dispose();$bmp.Dispose()"
++        )
++        result = subprocess.run(
++            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
++            capture_output=True, text=True, timeout=25)
++        if result.returncode != 0 or not os.path.exists(path):
++            raise RuntimeError(
++                "powershell screen capture failed: "
++                + (result.stderr or "no file produced"))
++        return path
++
+     result = subprocess.run(
+         ["screencapture", "-x", path],
+         capture_output=True, text=True, timeout=5
+@@ -46,6 +74,19 @@
+     channel (Judy 1172, 0.9 receipt-honesty).
+     """
+     warnings = []
++    if sys.platform != "darwin":
++        # The OCR backend is a compiled Swift binary linked against Apple's
++        # Vision framework. There is no Windows/Linux equivalent in this kit,
++        # so say that instead of letting subprocess raise [WinError 193]
++        # ("%1 is not a valid Win32 application") -- an error that names
++        # neither the platform nor the missing capability.
++        return {"lines": [],
++                "warnings": ["vision OCR unavailable on " + sys.platform
++                             + ": the backend is a macOS-only Swift binary "
++                               "(Apple Vision framework). Use hand_see_vlm "
++                               "for pixels, or cdp_see kind=a11y for text "
++                               "from a browser page."],
++                "unsupported_platform": sys.platform}
+     if not os.path.exists(VISION_OCR_BIN):
+         # Fallback: compile on the fly
+         _compile_vision_bin()

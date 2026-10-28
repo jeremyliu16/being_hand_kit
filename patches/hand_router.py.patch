@@ -1,0 +1,36 @@
+--- a/hand/router.py
++++ b/hand/router.py
+@@ -663,7 +663,7 @@
+     path = _capture_screenshot()
+     session = get_session()
+     session.screenshot_path = path
+-    return {
++    out = {
+         "method": "screenshot",
+         "source": "vision_ocr",
+         "path": path,
+@@ -676,6 +676,24 @@
+         # "file_path", not "failed".
+         "emitted": emitted_block({"image": image_channel(path=path)}),
+     }
++    # with_data on this branch (Judy, 2026-10-28): the CDP branch honours it and
++    # puts base64 in `data`; this branch used to ignore it, so every caller that
++    # asked for pixels on a non-browser capture got a file path back with no
++    # error. Symmetric now: ask for data, get data, and the emitted block says
++    # `emitted: true` because the bytes really are in this receipt.
++    if with_data:
++        import base64
++        with open(path, "rb") as f:
++            b64 = base64.b64encode(f.read()).decode("utf-8")
++        out["data"] = b64
++        out["data_length"] = len(b64)
++        out["format"] = "png"
++        out["evidence"]["data_length"] = len(b64)
++        out["evidence"]["format"] = "png"
++        out["emitted"] = emitted_block({
++            "image": image_channel(b64=b64, fmt="png"),
++        })
++    return out
+ 
+ # ── Plan ─────────────────────────────────────────────────────────────
+ 

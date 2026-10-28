@@ -1,0 +1,52 @@
+--- a/mcp_server.py
++++ b/mcp_server.py
+@@ -342,10 +342,46 @@
+     return route_eye_check(op=op, challenge_id=challenge_id, answer=answer,
+                            chars=chars, font_px=font_px, ttl_s=ttl_s)
+ @mcp.tool()
+-def hand_see_vlm(prompt: str = None, image_b64: str = None) -> dict:
+-    from hand.router import route_see_vlm
++def hand_see_vlm(prompt: str = None, image_b64: str = None,
++                 describe: bool = False):
++    """Look at the screen.
++
++    Default (describe=False): the screenshot comes back to YOU as an image and
++    lands in your own multimodal context. You look at it yourself -- no external
++    vision model, no lossy text summary, no second API call.
++
++    describe=True: send the screenshot to an external vision LLM and get text
++    back. Use only when the caller has no vision (text-only substrate), or when
++    you explicitly want a written description you can quote or search.
++
++    Why the default flipped (Judy, 2026-10-28): hand_eye_check already proves
++    rendered pixels reach the being, so paying a second model to describe them
++    is lossy by construction -- a description can only ever summarise the thing
++    the caller could have looked at directly.
++    """
++    from hand.router import route_screenshot
+     _bump()
+-    return route_see_vlm(prompt=prompt, image_b64=image_b64)
++    if describe:
++        from hand.router import route_see_vlm
++        return route_see_vlm(prompt=prompt, image_b64=image_b64)
++    if image_b64:
++        result = {"data": image_b64, "format": "png"}
++    else:
++        result = route_screenshot(with_data=True)
++    if result.get("data"):
++        from mcp.types import ImageContent
++        meta = {k: v for k, v in result.items() if k != "data"}
++        meta["mode"] = "direct"
++        if prompt:
++            meta["prompt_ignored"] = prompt
++            meta["hint"] = ("default mode returns the image itself and ignores "
++                            "prompt; pass describe=true for an external "
++                            "vision-LLM description")
++        return [ImageContent(type="image",
++                             data=result["data"],
++                             mimeType="image/" + str(result.get("format", "png"))),
++                json.dumps(meta, ensure_ascii=False)]
++    return result
+ @mcp.tool()
+ def hand_see_ocr(query: str = None) -> dict:
+     """Read exact on-screen text via Apple Vision OCR (zh-Hans/zh-Hant/en/ja).
